@@ -1047,8 +1047,8 @@ void rockchip_show_fbbase(ulong fbbase)
 			s->logo.width = 320;
 			s->logo.height = 480;
 		} else {
-			s->logo.width = 640;
-			s->logo.height = 480;
+			s->logo.width = 720;
+			s->logo.height = 720;
 		}
 #else
 		s->logo.width = DRM_ROCKCHIP_FB_WIDTH;
@@ -1422,8 +1422,8 @@ static int rockchip_display_probe(struct udevice *dev)
 		uc_priv->xsize = 320;
 		uc_priv->ysize = 480;
 	} else {
-		uc_priv->xsize = 640;
-		uc_priv->ysize = 480;
+		uc_priv->xsize = 720;
+		uc_priv->ysize = 720;
 	}
 #else
 	uc_priv->xsize = DRM_ROCKCHIP_FB_WIDTH;

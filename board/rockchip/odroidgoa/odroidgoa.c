@@ -188,7 +188,7 @@ int rk_board_late_init(void)
 	{
 		case MODEL_RG351V:
 		case MODEL_RG351MP:
-			disp_offs = 10;
+			disp_offs = 25;
 		break;
 		
 	}
