@@ -1044,8 +1044,8 @@ void rockchip_show_fbbase(ulong fbbase)
 		s->logo.mem = (char *)fbbase;
 #if defined(CONFIG_PLATFORM_ODROID_GOADV)
 		if (!strcmp(env_get("hwrev"), "rg351p")) {
-			s->logo.width = 320;
-			s->logo.height = 480;
+			s->logo.width = 480;
+			s->logo.height = 854;
 		} else {
 			s->logo.width = 720;
 			s->logo.height = 720;
@@ -1419,8 +1419,8 @@ static int rockchip_display_probe(struct udevice *dev)
 
 #if defined(CONFIG_PLATFORM_ODROID_GOADV)
 	if (!strcmp(env_get("hwrev"), "rg351p")) {
-		uc_priv->xsize = 320;
-		uc_priv->ysize = 480;
+		uc_priv->xsize = 480;
+		uc_priv->ysize = 854;
 	} else {
 		uc_priv->xsize = 720;
 		uc_priv->ysize = 720;

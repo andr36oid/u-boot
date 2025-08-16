@@ -21,6 +21,7 @@
 #endif
 #if defined(CONFIG_PLATFORM_ODROID_GOADV)
 	#include <rockchip_display_cmds.h>
+	#include <odroidgoa_status.h>
 #endif
 /*
  * Theory of operation:
@@ -209,7 +210,19 @@ static int video_post_probe(struct udevice *dev)
 	priv->rot = lcd_getrot();
 
 	/* lcd bpp is 24 */
-	priv->line_length = priv->xsize * 3;
+	switch(get_rg351_rev())
+	{
+		case MODEL_RG351P:
+			priv->line_length = priv->xsize * 2;
+		break;
+			
+		case MODEL_RG351MP:
+		case MODEL_RG351V:
+		default:
+			priv->line_length = priv->xsize * 3;
+		break;
+	
+	}
 	video_set_flush_dcache(dev, true);
 #else
 	priv->line_length = priv->xsize * VNBYTES(priv->bpix);
