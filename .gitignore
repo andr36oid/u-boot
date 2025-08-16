@@ -86,3 +86,9 @@ GTAGS
 *.orig
 *~
 \#*#
+
+#Prebuilt device trees
+*.dtb
+
+#Prebuilt u-boot bins
+sd_fuse/
