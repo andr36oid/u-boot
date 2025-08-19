@@ -15,6 +15,7 @@
 #include <linux/sizes.h>
 #ifdef CONFIG_PLATFORM_ODROID_GOADV
 #include <odroidgoa_status.h>
+#include <rockchip_display_cmds.h>
 #endif
 
 DECLARE_GLOBAL_DATA_PTR;
@@ -139,7 +140,8 @@ int do_booti(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[])
 
 	/* Consume 'booti' */
 	argc--; argv++;
-
+	lcd_onoff(false);
+	
 	if (booti_start(cmdtp, flag, argc, argv, &images))
 #ifdef CONFIG_PLATFORM_ODROID_GOADV
 	{
