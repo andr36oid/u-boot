@@ -33,6 +33,7 @@
 #include <dm.h>
 #include <dm/of_access.h>
 #include <dm/ofnode.h>
+#include <odroidgoa_status.h>
 
 #define DRIVER_VERSION	"v1.0.1"
 
@@ -1430,7 +1431,7 @@ static int rockchip_display_probe(struct udevice *dev)
 	uc_priv->ysize = DRM_ROCKCHIP_FB_HEIGHT;
 #endif
 	uc_priv->bpix = VIDEO_BPP32;
-
+	odroid_drop_errorlog("Framebuffer address is %x", (char *)plat->base);
 	#ifdef CONFIG_DRM_ROCKCHIP_VIDEO_FRAMEBUFFER
 	rockchip_show_fbbase(plat->base);
 	video_set_flush_dcache(dev, true);

@@ -30,7 +30,7 @@ int get_rg351_rev(void);
 int odroid_display_status(int logo_mode, int logo_storage, const char *str);
 void odroid_wait_pwrkey(void);
 void odroid_alert_leds(void);
-void odroid_drop_errorlog(const char *err, unsigned int size);
+void odroid_drop_errorlog(const char *fmt, ...);
 
 int board_check_recovery(void);
 void board_odroid_recovery(void);

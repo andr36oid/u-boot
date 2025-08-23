@@ -73,13 +73,18 @@ void odroid_alert_leds(void)
 	}
 }
 
-void odroid_drop_errorlog(const char *err, unsigned int size)
+void odroid_drop_errorlog(const char *fmt, ...)
 {
-	char str_cmd[64];
+    char err_buf[128];
+    char str_cmd[64];
+    va_list args;
 
-	sprintf(str_cmd, "save mmc 1 %p error.log 0x%x",
-			(void *)err, size);
-	run_command(str_cmd, 0);
+    va_start(args, fmt);
+    vsnprintf(err_buf, sizeof(err_buf), fmt, args);
+    va_end(args);
+
+    sprintf(str_cmd, "save mmc 1 %p error.log 0x%x",(void *) err_buf, (unsigned int)strlen(err_buf));
+    run_command(str_cmd, 0);
 }
 
 void odroid_wait_pwrkey(void)

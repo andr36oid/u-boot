@@ -213,7 +213,7 @@ static int video_post_probe(struct udevice *dev)
 	switch(get_rg351_rev())
 	{
 		case MODEL_RG351P:
-			priv->line_length = priv->xsize * 2;
+			priv->line_length = priv->xsize * 4;
 		break;
 			
 		case MODEL_RG351MP:

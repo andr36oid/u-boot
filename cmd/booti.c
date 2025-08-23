@@ -140,7 +140,7 @@ int do_booti(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[])
 
 	/* Consume 'booti' */
 	argc--; argv++;
-	lcd_onoff(false);
+	//lcd_onoff(false);
 	
 	if (booti_start(cmdtp, flag, argc, argv, &images))
 #ifdef CONFIG_PLATFORM_ODROID_GOADV

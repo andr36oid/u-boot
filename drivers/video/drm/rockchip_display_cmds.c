@@ -94,7 +94,7 @@ int lcd_init(void)
 	}
 
 	lcd->rot = lcd_getrot();
-	lcd->bpp = 24;
+	lcd->bpp = 32;
 
 	lcd->w = lcd->s->conn_state.mode.hdisplay;
 	lcd->h = lcd->s->conn_state.mode.vdisplay;
@@ -102,7 +102,7 @@ int lcd_init(void)
 	lcd->drm_fb_mem  = get_drm_memory();
 	lcd->drm_fb_size = (lcd->w * lcd->h * lcd->bpp) >> 3;
 
-	lcd->s->crtc_state.format  = ROCKCHIP_FMT_RGB888;
+	lcd->s->crtc_state.format  = ROCKCHIP_FMT_ARGB8888;
 #if defined(CONFIG_PLATFORM_ODROID_GOADV)
 	lcd->s->crtc_state.rb_swap = true;
 #else
@@ -444,11 +444,11 @@ unsigned long lcd_get_mem(void)
 /*----------------------------------------------------------------------------*/
 int lcd_show_logo(void)
 {
-	char cmd[128];
-	unsigned long bmp_mem;
-	unsigned long filesize;
-	unsigned long bmp_copy;
-	char *logo_fname;
+	//char cmd[128];
+	//unsigned long bmp_mem;
+	//unsigned long filesize;
+	//unsigned long bmp_copy;
+	//char *logo_fname;
 
 	if (lcd_init()) {
 		printf("%s : lcd init error!\n", __func__);
@@ -460,40 +460,40 @@ int lcd_show_logo(void)
 	}
 
 	/* env logo filename check */
-	if ((logo_fname = env_get("logo_filename")) == NULL)
-		logo_fname = LCD_LOGO_FILENAME;
+	//if ((logo_fname = env_get("logo_filename")) == NULL)
+	//	logo_fname = LCD_LOGO_FILENAME;
 
-	/* bitmap load address */
-	bmp_mem = get_drm_memory() + DRM_ROCKCHIP_FB_SIZE;
+	///* bitmap load address */
+	//bmp_mem = get_drm_memory() + DRM_ROCKCHIP_FB_SIZE;
 
-	/* load file size init */
-	env_set("filesize", "0");
+	///* load file size init */
+	//env_set("filesize", "0");
 
-	/* sending command */
-	sprintf(cmd, "fatload mmc 1:1 %p %s",
-			(void *)bmp_mem, logo_fname);
-	run_command(cmd, 0);
+	///* sending command */
+	//sprintf(cmd, "fatload mmc 1:1 %p %s",
+	//		(void *)bmp_mem, logo_fname);
+	//run_command(cmd, 0);
 
-	/* load file size check */
-	filesize = env_get_ulong("filesize", 16, 0);
-	if ((!filesize) || (filesize >= LCD_LOGO_SIZE)) {
-		printf("%s file not found! filesize = %ld\n",
-			logo_fname, filesize);
+	///* load file size check */
+	//filesize = env_get_ulong("filesize", 16, 0);
+	//if ((!filesize) || (filesize >= LCD_LOGO_SIZE)) {
+	//	printf("%s file not found! filesize = %ld\n",
+	//		logo_fname, filesize);
 
-		/* try logo image from spi flash */
-		bmp_copy = bmp_mem + LCD_LOGO_SIZE;
+	//	/* try logo image from spi flash */
+	//	bmp_copy = bmp_mem + LCD_LOGO_SIZE;
 
-		sprintf(cmd, "rksfc read %p %s %s", (void *)bmp_copy,
-			env_get("st_logo_hardkernel"),
-			env_get("sz_logo"));
-		run_command(cmd, 0);
+	//	sprintf(cmd, "rksfc read %p %s %s", (void *)bmp_copy,
+	//		env_get("st_logo_hardkernel"),
+	//		env_get("sz_logo"));
+	//	run_command(cmd, 0);
 
-		sprintf(cmd, "unzip %p %p", (void *)bmp_copy, (void *)bmp_mem);
-		run_command(cmd, 0);
-	}
+	//	sprintf(cmd, "unzip %p %p", (void *)bmp_copy, (void *)bmp_mem);
+	//	run_command(cmd, 0);
+	//}
 
-	if (show_bmp(bmp_mem))
-		return -1;
+	//if (show_bmp(bmp_mem))
+	//	return -1;
 
 	return 0;
 }

@@ -675,6 +675,11 @@ static int rockchip_vop_set_plane(struct display_state *state)
 	    crtc_state->format == ROCKCHIP_FMT_RGB888)
 		crtc_state->rb_swap = !crtc_state->rb_swap;
 
+	if (VOP_MAJOR(vop_data->version) == 2 &&
+	    VOP_MINOR(vop_data->version) == 6 &&
+	    crtc_state->format == ROCKCHIP_FMT_ARGB8888)
+		crtc_state->rb_swap = !crtc_state->rb_swap;
+
 	if (mode->flags & DRM_MODE_FLAG_YMIRROR)
 		y_mirror = 1;
 	else

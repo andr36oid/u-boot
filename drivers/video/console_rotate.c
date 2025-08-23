@@ -20,7 +20,7 @@ static int console_set_row_1(struct udevice *dev, uint row, int clr)
 {
 	struct video_priv *vid_priv = dev_get_uclass_priv(dev->parent);
 #if defined(CONFIG_PLATFORM_ODROID_GOADV)
-	int pbytes = 3;
+	int pbytes = 5;
 #else
 	int pbytes = VNBYTES(vid_priv->bpix);
 #endif
