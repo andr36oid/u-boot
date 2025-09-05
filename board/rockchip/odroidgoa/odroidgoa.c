@@ -182,6 +182,70 @@ err:
 	odroid_wait_pwrkey();
 }
 
+/*bool
+GpioPinRead (
+  int Group,
+  int Pin
+  )
+{
+
+	#define GPIO_BANK0          0xFF040000UL
+	#define GPIO_BANK1          0xFF250000UL
+	#define PMU_GRF             0xFF010000UL
+	#define SYS_GRF             0xFF140000UL
+	#define GPIO_BASE(n)        ((n) == 0 ? GPIO_BANK0 : (GPIO_BANK1 + ((n) - 1) * 0x10000))
+
+	#define GPIO_SWPORT_DR(Pin)             ((Pin) < 16 ? 0x0000 : 0x0004)
+	#define GPIO_VALUE_MASK(Pin, Value)     ((u32)Value << ((Pin) % 16))
+#define GPIO_EXT_PORTA   0x0050
+
+
+static u32 prev_val[4] = {0,0,0,0};
+
+for (;;) {
+    for (int g = 1; g < 4; g++) {
+        u32 val = readl(GPIO_BASE(g) + 0x50);
+        u32 diff = val ^ prev_val[g];
+        if (diff) {
+            lcd_printf(0, 5+g, 1, "GPIO%d changed: %08x -> %08x\n", g, prev_val[g], val);
+        }
+        prev_val[g] = val;
+    }
+    mdelay(100);
+}
+
+
+//u32 Value = readl(GPIO_BASE(Group) + GPIO_EXT_PORTA);
+//lcd_printf(0, 10 + disp_offs, 1, "Read EXT_PORTA: 0x%08x\n", Value);
+//lcd_printf(0, 11 + disp_offs, 1, "Pin %u.%u = %u\n",
+//           Group, Pin, (Value >> Pin) & 1);
+return (Value >> Pin) & 1;//
+}*/
+
+bool
+GpioPinRead (
+  int Group,
+  int Pin
+  )
+{
+    #define GPIO_BANK0          0xFF040000UL
+    #define GPIO_BANK1          0xFF250000UL
+    #define GPIO_BASE(n)        ((n) == 0 ? GPIO_BANK0 : (GPIO_BANK1 + ((n) - 1) * 0x10000))
+
+    #define GPIO_EXT_PORTA      0x0050
+
+    /* Read actual pin levels */
+    u32 Value = readl(GPIO_BASE(Group) + GPIO_EXT_PORTA);
+
+    /* Extract this pin’s bit */
+    bool State = ((Value >> Pin) & 1);
+
+    lcd_printf(0, 10 + disp_offs, 1, "GPIO%d.%-2d raw=0x%08x\n", Group, Pin, Value);
+    lcd_printf(0, 11 + disp_offs, 1, "Pin %d.%d = %d\n", Group, Pin, State);
+
+    return !State;
+}
+
 int rk_board_late_init(void)
 {
 	switch (get_rg351_rev())
@@ -231,9 +295,15 @@ int rk_board_late_init(void)
 
 	/* show boot logo and version */
 	lcd_show_logo();
-	lcd_setfg_color("grey");
+	lcd_setfg_color("amber");
 	lcd_printf(0, 18 + disp_offs, 1, " %s", U_BOOT_VERSION);
 	lcd_printf(0, 19 + disp_offs, 1, " %s %s", U_BOOT_DATE, U_BOOT_TIME);
+    while (!GpioPinRead(2, 1)) {
+        /* Optional: small delay to avoid hammering the bus */
+        //DEBUG((EFI_D_INFO | EFI_D_LOAD, "Waiting for pin\n"));
+		lcd_printf(0, 15 + disp_offs, 1, "Waiting for press");
+        mdelay(1000);
+    }
 
 	if (!board_check_autotest()) {
 		board_run_autotest();
