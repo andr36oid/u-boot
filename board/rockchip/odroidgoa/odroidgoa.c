@@ -239,8 +239,12 @@ int rk_board_late_init(void)
 	if (lcd_get_rows() && 19 + disp_offs >= lcd_get_rows())
 		disp_offs = lcd_get_rows() - 21;
 	lcd_setfg_color("grey");
-	lcd_printf(0, 18 + disp_offs, 1, " %s", U_BOOT_VERSION);
-	lcd_printf(0, 19 + disp_offs, 1, " %s %s", U_BOOT_DATE, U_BOOT_TIME);
+	/*
+	 * The version goes in the top left corner, which the boot logo leaves
+	 * empty; on the message lines it ran into the logo's lower part.
+	 */
+	lcd_printf(0, 0, 0, " %s", U_BOOT_VERSION);
+	lcd_printf(0, 1, 0, " %s %s", U_BOOT_DATE, U_BOOT_TIME);
 
 	if (!board_check_autotest()) {
 		board_run_autotest();
