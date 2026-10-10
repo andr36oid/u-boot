@@ -99,6 +99,30 @@ int lcd_init(void)
 	lcd->w = lcd->s->conn_state.mode.hdisplay;
 	lcd->h = lcd->s->conn_state.mode.vdisplay;
 
+#if defined(CONFIG_PLATFORM_ODROID_GOADV)
+	/*
+	 * The video uclass sets up its text console for a 720x720 screen on every
+	 * board but the RG351P. On a 640x480 panel (R36S) each text line in memory
+	 * is then longer than a panel line: letters come out slanted and the lower
+	 * rows, such as the version lines, fall below the screen. Give the console
+	 * the panel's size. Unrotated 24-bit panels only, as the console assumes.
+	 */
+	if (lcd->rot == LCD_ROTATE_0 && get_rg351_rev() != MODEL_RG351P) {
+		struct video_priv *vid = dev_get_uclass_priv(lcd->udev_video);
+		struct vidconsole_priv *con = dev_get_uclass_priv(lcd->udev_vidcon);
+
+		if (vid->xsize != lcd->w || vid->ysize != lcd->h) {
+			vid->xsize = lcd->w;
+			vid->ysize = lcd->h;
+			vid->line_length = lcd->w * 3;
+			vid->fb_size = vid->line_length * vid->ysize;
+			con->xsize_frac = VID_TO_POS(lcd->w);
+			con->cols = lcd->w / VIDEO_FONT_WIDTH;
+			con->rows = lcd->h / VIDEO_FONT_HEIGHT;
+		}
+	}
+#endif
+
 	lcd->drm_fb_mem  = get_drm_memory();
 	lcd->drm_fb_size = (lcd->w * lcd->h * lcd->bpp) >> 3;
 
