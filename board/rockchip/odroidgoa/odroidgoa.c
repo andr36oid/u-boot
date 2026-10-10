@@ -231,6 +231,13 @@ int rk_board_late_init(void)
 
 	/* show boot logo and version */
 	lcd_show_logo();
+	/*
+	 * Keep the message lines (18 and 19 + disp_offs) on the screen. The
+	 * RG351MP/V offset puts them on rows 43 and 44, below the 30 rows of a
+	 * 640x480 panel such as the R36S's.
+	 */
+	if (lcd_get_rows() && 19 + disp_offs >= lcd_get_rows())
+		disp_offs = lcd_get_rows() - 21;
 	lcd_setfg_color("grey");
 	lcd_printf(0, 18 + disp_offs, 1, " %s", U_BOOT_VERSION);
 	lcd_printf(0, 19 + disp_offs, 1, " %s %s", U_BOOT_DATE, U_BOOT_TIME);

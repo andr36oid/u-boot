@@ -91,6 +91,7 @@ int lcd_setbg_color(const char *color);
 int lcd_settransp(unsigned long transp);
 int lcd_gettransp(void);
 int lcd_show_logo(void);
+int lcd_get_rows(void);
 unsigned long lcd_get_mem(void);
 
 /*----------------------------------------------------------------------------*/

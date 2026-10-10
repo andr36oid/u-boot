@@ -292,6 +292,15 @@ int lcd_clrline(unsigned long line)
 }
 
 /*----------------------------------------------------------------------------*/
+/* Text rows that fit on the screen, 0 before lcd_init() */
+int lcd_get_rows(void)
+{
+	if (lcd == NULL)
+		return 0;
+	return lcd_get_height() / VIDEO_FONT_HEIGHT;
+}
+
+/*----------------------------------------------------------------------------*/
 int lcd_printf(unsigned long x, unsigned long y, unsigned char align,
 	const char *fmt, ...)
 {
