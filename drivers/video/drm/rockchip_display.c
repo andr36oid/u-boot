@@ -1443,31 +1443,71 @@ static int rockchip_display_probe(struct udevice *dev)
 
 #include <rockchip_display_cmds.h>
 
+/*
+ * Hands the boot logo over to the kernel: the screen stays on and keeps showing
+ * the logo until the kernel draws. The kernel's Rockchip DRM driver takes the
+ * framebuffer from the reserved drm-logo memory and needs the logo,* and video,*
+ * properties on its route node to use it; without them it frees that memory
+ * while the screen still shows it.
+ */
 void rockchip_display_fixup(void *blob)
 {
+	extern struct lcd *lcd;
 	struct display_state *s;
-	int offset = 0;
+	const struct device_node *np;
+	const char *path;
 	unsigned long bmp_mem;
+	int offset;
 
-	if (fdt_node_offset_by_compatible(blob, 0, "rockchip,drm-logo") >= 0) {
-		list_for_each_entry(s, &rockchip_display_list, head) {
-				bmp_mem = get_drm_memory() + DRM_ROCKCHIP_FB_SIZE;
-				if (show_bmp(bmp_mem))
-					return;
-		}
+	if (fdt_node_offset_by_compatible(blob, 0, "rockchip,drm-logo") < 0)
+		return;
+	/* nothing on the screen (no panel, or it was turned off): nothing to hand over */
+	if (!lcd || !lcd->s || !lcd->s->is_enable)
+		return;
+	s = lcd->s;
 
-		offset = fdt_update_reserved_memory(blob, "rockchip,drm-logo",
-			    (u64)get_drm_memory(),
-			    (u64)(DRM_ROCKCHIP_FB_SIZE+LCD_LOGO_SIZE));
-		if (offset < 0)
-			printf("failed to reserve drm-loader-logo memory\n");
-		else {
-			printf("reserve drm-loader-logo offset = %d\n", offset);
-			printf("reserve drm-logo mem = %p, size = %lld\n",
-				(void *)get_drm_memory(),
-				(u64)(DRM_ROCKCHIP_FB_SIZE+LCD_LOGO_SIZE));
-		}
+	/* a clean logo for the kernel, without the text lines U-Boot wrote over it */
+	memset((void *)lcd->drm_fb_mem, 0x00, lcd->drm_fb_size);
+	bmp_mem = get_drm_memory() + DRM_ROCKCHIP_FB_SIZE;
+	if (show_bmp(bmp_mem))
+		return;
+
+	offset = fdt_update_reserved_memory(blob, "rockchip,drm-logo",
+		    (u64)get_drm_memory(),
+		    (u64)(DRM_ROCKCHIP_FB_SIZE+LCD_LOGO_SIZE));
+	if (offset < 0) {
+		printf("failed to reserve drm-loader-logo memory\n");
+		return;
 	}
+	printf("reserve drm-logo mem = %p, size = %lld\n",
+		(void *)get_drm_memory(),
+		(u64)(DRM_ROCKCHIP_FB_SIZE+LCD_LOGO_SIZE));
+
+	np = ofnode_to_np(s->node);
+	if (!np)
+		return;
+	path = np->full_name;
+	fdt_increase_size(blob, 0x400);
+#define FDT_SET_U32(name, val) \
+		do_fixup_by_path_u32(blob, path, name, val, 1);
+
+	/* the framebuffer lcd_init() set up: 24 bit, panel size, unmirrored */
+	FDT_SET_U32("logo,offset", lcd->drm_fb_mem - get_drm_memory());
+	FDT_SET_U32("logo,width", lcd->w);
+	FDT_SET_U32("logo,height", lcd->h);
+	FDT_SET_U32("logo,bpp", lcd->bpp);
+	FDT_SET_U32("logo,ymirror", 0);
+	FDT_SET_U32("video,hdisplay", s->conn_state.mode.hdisplay);
+	FDT_SET_U32("video,vdisplay", s->conn_state.mode.vdisplay);
+	FDT_SET_U32("video,crtc_hsync_end", s->conn_state.mode.crtc_hsync_end);
+	FDT_SET_U32("video,crtc_vsync_end", s->conn_state.mode.crtc_vsync_end);
+	FDT_SET_U32("video,vrefresh", drm_mode_vrefresh(&s->conn_state.mode));
+	FDT_SET_U32("video,flags", s->conn_state.mode.flags);
+	FDT_SET_U32("overscan,left_margin", s->conn_state.overscan.left_margin);
+	FDT_SET_U32("overscan,right_margin", s->conn_state.overscan.right_margin);
+	FDT_SET_U32("overscan,top_margin", s->conn_state.overscan.top_margin);
+	FDT_SET_U32("overscan,bottom_margin", s->conn_state.overscan.bottom_margin);
+#undef FDT_SET_U32
 }
 
 #else
