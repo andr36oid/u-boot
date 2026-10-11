@@ -33,7 +33,9 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += \
 	rg351mp-uboot.dtb \
 	r36s-uboot-pan4.dts \
 	r36plus-uboot.dtb \
-	r50s-uboot.dtb
+	r50s-uboot.dtb \
+	r46h-uboot.dtb
+
 dtb-$(CONFIG_ARCH_MESON) += \
 	meson-gxbb-odroidc2.dtb
 dtb-$(CONFIG_TEGRA) += tegra20-harmony.dtb \
