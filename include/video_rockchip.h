@@ -8,9 +8,13 @@
 #define VIDEO_ROCKCHIP_H
 
 #if defined(CONFIG_PLATFORM_ODROID_GOADV)
-	/* set larger fb size to support GO2 & GO3 */
-	#define DRM_ROCKCHIP_FB_WIDTH		640
-	#define DRM_ROCKCHIP_FB_HEIGHT	480
+	/*
+	 * Room for the largest panel of the consoles this U-Boot starts, the R46H's
+	 * 1024x768. 640x480 was too small for anything bigger: the logo drawn on a
+	 * 720x720 or 1024x768 panel ran over the logo file loaded right after it.
+	 */
+	#define DRM_ROCKCHIP_FB_WIDTH		1024
+	#define DRM_ROCKCHIP_FB_HEIGHT	768
 	#define DRM_ROCKCHIP_FB_BPP		VIDEO_BPP32
 #else
 	#ifdef CONFIG_DRM_ROCKCHIP_VIDEO_FRAMEBUFFER
