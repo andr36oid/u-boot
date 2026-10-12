@@ -347,6 +347,22 @@ void board_set_spilayout(void)
 	}
 }
 
+/*
+ * ram_mb: the RAM U-Boot hands to Linux, in MiB, for boot.ini. Some clones are
+ * sold as 1 GB but carry 512 MB, and Android needs other settings on those.
+ */
+static void board_set_ram_mb(void)
+{
+	u64 size = 0;
+	int i;
+
+	for (i = 0; i < CONFIG_NR_DRAM_BANKS; i++)
+		size += gd->bd->bi_dram[i].size;
+	if (!size)
+		size = gd->ram_size;
+	env_set_ulong("ram_mb", (ulong)(size >> 20));
+}
+
 int init_kernel_dtb(void)
 {
 	ulong fdt_addr;
@@ -354,6 +370,8 @@ int init_kernel_dtb(void)
 
 	/* check hw revision */
 	board_check_hwrev();
+
+	board_set_ram_mb();
 
 	/* adjust offsets of spi flash layout */
 	board_set_spilayout();
