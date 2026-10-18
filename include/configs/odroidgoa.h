@@ -88,6 +88,6 @@
 		"booti 0x02000000 - 0x01f00000\0"
 
 #undef CONFIG_BOOTDELAY
-#define CONFIG_BOOTDELAY	1
+#define CONFIG_BOOTDELAY	0
 
 #endif
