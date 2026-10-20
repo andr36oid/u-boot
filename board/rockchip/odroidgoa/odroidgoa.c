@@ -239,6 +239,14 @@ int rk_board_late_init(void)
 		charge_display();
 #endif
 
+	/*
+	 * andr36oid: the SFC setup above took the built-in eMMC's clock and data
+	 * pins, so the boot logo could not load from it. Hand them back only now:
+	 * the checks before ran with the SFC side and hung without it.
+	 */
+	if (env_get("andr36oid_part") && !strcmp(env_get("andr36oid_part"), "0:1"))
+		andr36oid_emmc_pins();
+
 	/* show boot logo and version */
 	lcd_show_logo();
 	/*
