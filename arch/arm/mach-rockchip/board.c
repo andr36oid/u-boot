@@ -389,7 +389,7 @@ static void board_set_ram_mb(void)
 /*
  * andr36oid: switch the built-in eMMC's pins over (GRF iomux and pulls, as the
  * kernel's emmc_clk, emmc_cmd and emmc_bus8): GPIO1_A0-A7 data and GPIO1_B2
- * command with pull-ups, GPIO1_B1 clock without, all function 2.
+ * command with pull-ups, GPIO1_B1 clock without, all function 2 and 8 mA.
  */
 #define ANDR36OID_GRF		0xff140000
 
@@ -400,6 +400,9 @@ void andr36oid_emmc_pins(void)
 	writel(0x0ff00220, ANDR36OID_GRF + 0x08);	/* GPIO1B1-B2 iomux */
 	writel(0xffff5555, ANDR36OID_GRF + 0x60);	/* GPIO1A pulls */
 	writel(0x003c0010, ANDR36OID_GRF + 0x64);	/* GPIO1B1-B2 pulls */
+	/* 8 mA, as the kernel's pin config; the reset default is weaker */
+	writel(0xffffaaaa, ANDR36OID_GRF + 0xf0);	/* GPIO1A0-A7 drive */
+	writel(0x003c0028, ANDR36OID_GRF + 0xf4);	/* GPIO1B1-B2 drive */
 }
 
 int init_kernel_dtb(void)
