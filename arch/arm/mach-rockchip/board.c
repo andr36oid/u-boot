@@ -5,6 +5,7 @@
  */
 
 #include <common.h>
+#include <fs.h>
 #include <amp.h>
 #include <bidram.h>
 #include <clk.h>
@@ -168,9 +169,22 @@ int fb_set_reboot_flag(void)
  */
 static const char *andr36oid_part = "1:1";
 
+void andr36oid_emmc_pins(void);
+
 int board_late_init(void)
 {
-	/* andr36oid: init_kernel_dtb's choice, from before the environment was loaded */
+	/*
+	 * andr36oid: init_kernel_dtb's choice, from before the environment was
+	 * loaded. Its eMMC read can fail that early (the screen then comes up
+	 * with another DT), so check again now that the MMC devices are set up:
+	 * no boot.ini on an SD card but one on the eMMC is an eMMC start.
+	 */
+	if (strcmp(andr36oid_part, "0:1") &&
+	    !file_exists("mmc", "1:1", "boot.ini", FS_TYPE_FAT)) {
+		andr36oid_emmc_pins();
+		if (file_exists("mmc", "0:1", "boot.ini", FS_TYPE_FAT))
+			andr36oid_part = "0:1";
+	}
 	env_set("andr36oid_part", andr36oid_part);
 	rockchip_set_ethaddr();
 	rockchip_set_serialno();
