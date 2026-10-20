@@ -19,6 +19,8 @@
 #include <rockchip_display_cmds.h>
 #include <odroidgoa_status.h>
 
+void andr36oid_emmc_pins(void);
+
 DECLARE_GLOBAL_DATA_PTR;
 
 #define RUMBLE_GPIO	15 /* GPIO0_B7 */
@@ -163,6 +165,14 @@ void board_check_mandatory_files(void)
 	/* check sd card existence */
 	if (CMD_RET_SUCCESS != run_command("mmc dev 1", 0)) {
 		if(CMD_RET_SUCCESS != run_command("mmc dev 1", 0)) {
+			/*
+			 * andr36oid: installed on the built-in eMMC, no SD card
+			 * needed. The "no SD card" screen waits for the power
+			 * key, then powers off.
+			 */
+			andr36oid_emmc_pins();
+			if (file_exists("mmc", "0:1", "boot.ini", FS_TYPE_FAT))
+				return;
 			odroid_display_status(LOGO_MODE_NO_SDCARD,
 				LOGO_STORAGE_ANYWHERE, NULL);
 			goto err;
