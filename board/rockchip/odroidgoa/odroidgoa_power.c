@@ -7,6 +7,7 @@
 #include <common.h>
 #include <dm.h>
 #include <asm/gpio.h>
+#include <linux/libfdt.h>
 #include <power/fuel_gauge.h>
 #include <odroidgoa_status.h>
 
@@ -16,8 +17,36 @@
 #define DC_DET_GPIO	11	/* GPIO0_B3 */
 #define CHG_LED_GPIO	13	/* GPIO0_B5 */
 
+DECLARE_GLOBAL_DATA_PTR;
+
+/*
+ * andr36oid: some clones (the D-28S) wire GPIO0_B5 to the screen's enable pin,
+ * not to a charge LED: driving it low switched the screen off. True when the
+ * DT has an enable-gpios on it.
+ */
+static bool chg_led_is_panel_enable(void)
+{
+	const void *fdt = gd->fdt_blob;
+	int node, len;
+
+	for (node = fdt_next_node(fdt, -1, NULL); node >= 0;
+	     node = fdt_next_node(fdt, node, NULL)) {
+		const fdt32_t *gpios = fdt_getprop(fdt, node, "enable-gpios", &len);
+		int bank;
+
+		if (!gpios || len < 8 || fdt32_to_cpu(gpios[1]) != CHG_LED_GPIO)
+			continue;
+		bank = fdt_node_offset_by_phandle(fdt, fdt32_to_cpu(gpios[0]));
+		if (bank >= 0 && !strncmp(fdt_get_name(fdt, bank, NULL), "gpio0@", 6))
+			return true;
+	}
+	return false;
+}
+
 void board_chg_led(void)
 {
+	if (chg_led_is_panel_enable())
+		return;
 	gpio_request(CHG_LED_GPIO, "chg_led");
 	/* default off, controlled by charge animation logic */
 	gpio_direction_output(CHG_LED_GPIO, 0);
