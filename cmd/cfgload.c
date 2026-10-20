@@ -14,6 +14,8 @@
 #include <command.h>
 #include <fs.h>
 
+void andr36oid_emmc_pins(void);
+
 static int do_load_cfgload(cmd_tbl_t *cmdtp, int flag, int argc,
 		char *const argv[])
 {
@@ -35,12 +37,29 @@ static int do_load_cfgload(cmd_tbl_t *cmdtp, int flag, int argc,
 
 	for (i = 0; i < ARRAY_SIZE(scripts); i++) {
 		if (file_exists("mmc", "1", scripts[i], FS_TYPE_ANY)) {
+			env_set("andr36oid_part", "1:1");
 			snprintf(cmd, sizeof(cmd),
 				"load mmc 1:1 0x%08lx %s; source 0x%08lx",
 				addr, scripts[i], addr);
 			if (run_command(cmd, 0) == 0)
 				return 0;
 		}
+	}
+
+	/*
+	 * andr36oid: no boot.ini on an SD card (or none at all), so andr36oid
+	 * installed on the built-in eMMC. An SD card with one always wins, so
+	 * a card can start the console whatever is on the eMMC. boot.ini sees
+	 * where it came from in andr36oid_part.
+	 */
+	andr36oid_emmc_pins();
+	if (file_exists("mmc", "0:1", "boot.ini", FS_TYPE_FAT)) {
+		env_set("andr36oid_part", "0:1");
+		snprintf(cmd, sizeof(cmd),
+			"load mmc 0:1 0x%08lx boot.ini; source 0x%08lx",
+			addr, addr);
+		if (run_command(cmd, 0) == 0)
+			return 0;
 	}
 
 	return -1;

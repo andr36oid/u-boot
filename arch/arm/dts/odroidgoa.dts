@@ -355,8 +355,18 @@
 	status = "okay";
 };
 
+/*
+ * andr36oid: the built-in eMMC some clones carry, where andr36oid can be
+ * installed. No pinctrl: nothing touches its pins until andr36oid_emmc_pins()
+ * (board.c) switches them over, and that only happens when the SD card has no
+ * BOOT files to start from. Consoles wired like the R36S have their D-pad and
+ * rumble on these pins. 26 MHz is plenty for the few files loaded here.
+ */
 &emmc {
-	status = "disabled";
+	bus-width = <8>;
+	max-frequency = <26000000>;
+	non-removable;
+	status = "okay";
 };
 
 &pwm1 {

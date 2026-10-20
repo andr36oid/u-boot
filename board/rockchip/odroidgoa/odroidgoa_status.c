@@ -15,6 +15,14 @@
 #include <version.h>
 #include <odroidgoa_status.h>
 
+/* andr36oid: the BOOT partition U-Boot started from, SD card (1:1) or built-in eMMC (0:1) */
+static const char *andr36oid_part(void)
+{
+	const char *part = env_get("andr36oid_part");
+
+	return part ? part : "1:1";
+}
+
 #define POWERDOWN_WAIT_TIME	10000
 #define LOOP_DELAY		25
 
@@ -147,10 +155,10 @@ int odroid_display_status(int logo_mode, int logo_storage, const char *str)
 		break;
 	case LOGO_STORAGE_SDCARD:
 		if (is_odroidgo3())
-			sprintf(cmd, "fatload mmc 1:1 %p %s_b.bmp", (void *)bmp_mem,
+			sprintf(cmd, "fatload mmc %s %p %s_b.bmp", andr36oid_part(), (void *)bmp_mem,
 				logo_bmp_names[logo_mode]);
 		else
-			sprintf(cmd, "fatload mmc 1:1 %p %s.bmp", (void *)bmp_mem,
+			sprintf(cmd, "fatload mmc %s %p %s.bmp", andr36oid_part(), (void *)bmp_mem,
 				logo_bmp_names[logo_mode]);
 
 		run_command(cmd, 0);
@@ -172,10 +180,10 @@ int odroid_display_status(int logo_mode, int logo_storage, const char *str)
 		if (show_bmp(bmp_mem)) {
 			/* then, check sd card */
 			if (is_odroidgo3())
-				sprintf(cmd, "fatload mmc 1:1 %p %s_b.bmp", (void *)bmp_mem,
+				sprintf(cmd, "fatload mmc %s %p %s_b.bmp", andr36oid_part(), (void *)bmp_mem,
 					logo_bmp_names[logo_mode]);
 			else
-				sprintf(cmd, "fatload mmc 1:1 %p %s.bmp", (void *)bmp_mem,
+				sprintf(cmd, "fatload mmc %s %p %s.bmp", andr36oid_part(), (void *)bmp_mem,
 					logo_bmp_names[logo_mode]);
 
 			run_command(cmd, 0);

@@ -363,6 +363,22 @@ static void board_set_ram_mb(void)
 	env_set_ulong("ram_mb", (ulong)(size >> 20));
 }
 
+/*
+ * andr36oid: switch the built-in eMMC's pins over (GRF iomux and pulls, as the
+ * kernel's emmc_clk, emmc_cmd and emmc_bus8): GPIO1_A0-A7 data and GPIO1_B2
+ * command with pull-ups, GPIO1_B1 clock without, all function 2.
+ */
+#define ANDR36OID_GRF		0xff140000
+
+void andr36oid_emmc_pins(void)
+{
+	writel(0xffff2222, ANDR36OID_GRF + 0x00);	/* GPIO1A0-A3 iomux */
+	writel(0xffff2222, ANDR36OID_GRF + 0x04);	/* GPIO1A4-A7 iomux */
+	writel(0x0ff00220, ANDR36OID_GRF + 0x08);	/* GPIO1B1-B2 iomux */
+	writel(0xffff5555, ANDR36OID_GRF + 0x60);	/* GPIO1A pulls */
+	writel(0x003c0010, ANDR36OID_GRF + 0x64);	/* GPIO1B1-B2 pulls */
+}
+
 int init_kernel_dtb(void)
 {
 	ulong fdt_addr;
@@ -383,10 +399,25 @@ int init_kernel_dtb(void)
 	}
 ////
 	//SD
+	env_set("andr36oid_part", "1:1");
 	ret = run_command("fatload mmc 1:1 ${fdt_addr_r} ${dtb_uboot}", 0);
 	if (ret == CMD_RET_SUCCESS) {
 		ret = check_fdt_header(fdt_addr);
 	} 
+
+	/*
+	 * andr36oid: no BOOT files on an SD card, andr36oid may be installed on
+	 * the built-in eMMC (mmc 0). The boot logo and charge screen then come
+	 * from there too (andr36oid_part), boot.ini is cfgload's to find.
+	 */
+	if (ret != CMD_RET_SUCCESS) {
+		andr36oid_emmc_pins();
+		ret = run_command("fatload mmc 0:1 ${fdt_addr_r} ${dtb_uboot}", 0);
+		if (ret == CMD_RET_SUCCESS)
+			ret = check_fdt_header(fdt_addr);
+		if (ret == CMD_RET_SUCCESS)
+			env_set("andr36oid_part", "0:1");
+	}
 	
 	//SPI
 	if (ret != CMD_RET_SUCCESS) {

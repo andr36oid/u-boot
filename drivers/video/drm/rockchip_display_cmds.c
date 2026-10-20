@@ -503,7 +503,9 @@ int lcd_show_logo(void)
 	env_set("filesize", "0");
 
 	/* sending command */
-	sprintf(cmd, "fatload mmc 1:1 %p %s",
+	/* andr36oid: the BOOT the DT came from, SD card or built-in eMMC */
+	sprintf(cmd, "fatload mmc %s %p %s",
+			env_get("andr36oid_part") ? env_get("andr36oid_part") : "1:1",
 			(void *)bmp_mem, logo_fname);
 	run_command(cmd, 0);
 
