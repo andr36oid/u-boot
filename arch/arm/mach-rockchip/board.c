@@ -413,6 +413,9 @@ int init_kernel_dtb(void)
 	if (ret != CMD_RET_SUCCESS) {
 		andr36oid_emmc_pins();
 		ret = run_command("fatload mmc 0:1 ${fdt_addr_r} ${dtb_uboot}", 0);
+		/* this early the eMMC may not be set up yet: select it, try again */
+		if (ret != CMD_RET_SUCCESS && run_command("mmc dev 0", 0) == CMD_RET_SUCCESS)
+			ret = run_command("fatload mmc 0:1 ${fdt_addr_r} ${dtb_uboot}", 0);
 		if (ret == CMD_RET_SUCCESS)
 			ret = check_fdt_header(fdt_addr);
 		if (ret == CMD_RET_SUCCESS)
