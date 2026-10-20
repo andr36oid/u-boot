@@ -161,8 +161,17 @@ int fb_set_reboot_flag(void)
 }
 #endif
 
+/*
+ * andr36oid: the BOOT the screen DT came from, SD card (1:1) or built-in eMMC
+ * (0:1). init_kernel_dtb runs before the environment is loaded, which drops
+ * whatever it sets there, so board_late_init sets andr36oid_part from this.
+ */
+static const char *andr36oid_part = "1:1";
+
 int board_late_init(void)
 {
+	/* andr36oid: init_kernel_dtb's choice, from before the environment was loaded */
+	env_set("andr36oid_part", andr36oid_part);
 	rockchip_set_ethaddr();
 	rockchip_set_serialno();
 #if (CONFIG_ROCKCHIP_BOOT_MODE_REG > 0)
@@ -399,7 +408,6 @@ int init_kernel_dtb(void)
 	}
 ////
 	//SD
-	env_set("andr36oid_part", "1:1");
 	ret = run_command("fatload mmc 1:1 ${fdt_addr_r} ${dtb_uboot}", 0);
 	if (ret == CMD_RET_SUCCESS) {
 		ret = check_fdt_header(fdt_addr);
@@ -419,7 +427,7 @@ int init_kernel_dtb(void)
 		if (ret == CMD_RET_SUCCESS)
 			ret = check_fdt_header(fdt_addr);
 		if (ret == CMD_RET_SUCCESS)
-			env_set("andr36oid_part", "0:1");
+			andr36oid_part = "0:1";
 	}
 	
 	//SPI
