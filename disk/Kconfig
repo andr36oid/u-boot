@@ -78,6 +78,17 @@ config EFI_PARTITION
 	  common when EFI is the bootloader.  Note 2TB partition limit;
 	  see disk/part_efi.c
 
+config ROCKCHIP_GPT_AUTO_REPAIR
+	bool "Repair a damaged GPT copy while probing partitions"
+	depends on EFI_PARTITION && RKIMG_BOOTLOADER
+	default y
+	help
+	  Keep the Rockchip implicit repair during partition discovery. If
+	  disabled, report a damaged copy without writing the disk and let
+	  the normal reader use the remaining valid GPT. Explicit GPT write
+	  commands are not disabled. Existing factory flows may need their
+	  own deliberate repair before erasing a primary table.
+
 config EFI_PARTITION_ENTRIES_NUMBERS
 	int "Number of the EFI partition entries"
 	depends on EFI_PARTITION

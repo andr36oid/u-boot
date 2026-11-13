@@ -340,6 +340,7 @@ int part_get_info_efi(struct blk_desc *dev_desc, int part,
 }
 
 #ifdef CONFIG_RKIMG_BOOTLOADER
+#ifdef CONFIG_ROCKCHIP_GPT_AUTO_REPAIR
 static void gpt_entry_modify(struct blk_desc *dev_desc,
 			     gpt_entry *gpt_pte,
 			     gpt_header *gpt_head)
@@ -424,6 +425,21 @@ static int part_efi_repair(struct blk_desc *dev_desc, gpt_entry *gpt_pte,
 
 	return 0;
 }
+#else
+static int part_efi_repair(struct blk_desc *dev_desc, gpt_entry *gpt_pte,
+			   gpt_header *gpt_head, int head_gpt_valid,
+			   int backup_gpt_valid)
+{
+	/* Report only: never mutate headers/entries or issue block writes. */
+	if (!head_gpt_valid && !backup_gpt_valid)
+		return -1;
+	if (head_gpt_valid != backup_gpt_valid)
+		printf("GPT: device %d %s invalid; automatic repair disabled\n",
+		       dev_desc->devnum, head_gpt_valid ? "backup" : "primary");
+	return 0;
+}
+#endif
+
 #endif
 
 static int part_test_efi(struct blk_desc *dev_desc)
