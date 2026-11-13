@@ -26,6 +26,11 @@ struct rockchip_panel {
 	const void *data;
 
 	struct display_state *state;
+
+	/* Transaction completion only; NOT permission for kernel adoption. */
+	int init_error;
+	bool prepared_checked;
+	bool enabled_checked;
 };
 
 static inline void rockchip_panel_init(struct rockchip_panel *panel)
@@ -73,4 +78,5 @@ static inline void rockchip_panel_disable(struct rockchip_panel *panel)
 		panel->funcs->disable(panel);
 }
 
+int rockchip_panel_loader_status(struct rockchip_panel *panel,u8 *status);
 #endif	/* _ROCKCHIP_PANEL_H_ */

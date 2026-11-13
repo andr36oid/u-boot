@@ -76,7 +76,7 @@ __weak void board_quiesce_devices(void)
  *
  * @fake: non-zero to do everything except actually boot
  */
-static void announce_and_cleanup(int fake)
+static void announce_and_cleanup(int fake, void *final_fdt)
 {
 	ulong us;
 
@@ -108,6 +108,13 @@ static void announce_and_cleanup(int fake)
 	 * of DMA operation or releasing device internal buffers.
 	 */
 	dm_remove_devices_flags(DM_REMOVE_ACTIVE_ALL);
+#if defined(CONFIG_PLATFORM_ODROID_GOADV)
+	{
+		extern void rockchip_display_finalize_handoff(void *blob);
+		rockchip_display_finalize_handoff(final_fdt);
+	}
+#endif
+
 
 	cleanup_before_linux();
 }
@@ -331,7 +338,7 @@ static void boot_jump_linux(bootm_headers_t *images, int flag)
 		(ulong) kernel_entry);
 	bootstage_mark(BOOTSTAGE_ID_RUN_OS);
 
-	announce_and_cleanup(fake);
+	announce_and_cleanup(fake, (void *)images->ft_addr);
 
 	if (!fake) {
 #ifdef CONFIG_ARMV8_PSCI
@@ -381,7 +388,7 @@ static void boot_jump_linux(bootm_headers_t *images, int flag)
 	debug("## Transferring control to Linux (at address %08lx)" \
 		"...\n", (ulong) kernel_entry);
 	bootstage_mark(BOOTSTAGE_ID_RUN_OS);
-	announce_and_cleanup(fake);
+	announce_and_cleanup(fake, (void *)images->ft_addr);
 
 	if (IMAGE_ENABLE_OF_LIBFDT && images->ft_len)
 		r2 = (unsigned long)images->ft_addr;

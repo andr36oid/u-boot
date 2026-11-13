@@ -181,4 +181,10 @@ bool drm_mode_is_420(const struct drm_display_info *display,
 	void set_display_state(struct display_state *state, bool enable);
 #endif
 
+void a36_logo_invalidate(void);
+void a36_logo_clear(void *blob);
+void a36_logo_stage(struct display_state *s,void *blob,unsigned long base,
+                    unsigned long size,unsigned long fb,unsigned int width,
+                    unsigned int height,unsigned int bpp);
+void rockchip_display_finalize_handoff(void *blob);
 #endif

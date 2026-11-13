@@ -669,6 +669,7 @@ static int display_enable(struct display_state *state)
 	const struct rockchip_crtc *crtc = crtc_state->crtc;
 	const struct rockchip_crtc_funcs *crtc_funcs = crtc->funcs;
 	struct panel_state *panel_state = &state->panel_state;
+	int ret;
 
 	display_init(state);
 
@@ -678,29 +679,47 @@ static int display_enable(struct display_state *state)
 	if (state->is_enable)
 		return 0;
 
-	if (crtc_funcs->prepare)
-		crtc_funcs->prepare(state);
+	if (crtc_funcs->prepare) {
+		ret = crtc_funcs->prepare(state);
+		if (ret)
+			return ret;
+	}
 
-	if (conn_funcs->prepare)
-		conn_funcs->prepare(state);
+	if (conn_funcs->prepare) {
+		ret = conn_funcs->prepare(state);
+		if (ret)
+			return ret;
+	}
 
 	if (conn_state->bridge)
 		rockchip_bridge_pre_enable(conn_state->bridge);
 
-	if (panel_state->panel)
+	if (panel_state->panel) {
 		rockchip_panel_prepare(panel_state->panel);
+		if (panel_state->panel->init_error)
+			return panel_state->panel->init_error;
+	}
 
-	if (crtc_funcs->enable)
-		crtc_funcs->enable(state);
+	if (crtc_funcs->enable) {
+		ret = crtc_funcs->enable(state);
+		if (ret)
+			return ret;
+	}
 
-	if (conn_funcs->enable)
-		conn_funcs->enable(state);
+	if (conn_funcs->enable) {
+		ret = conn_funcs->enable(state);
+		if (ret)
+			return ret;
+	}
 
 	if (conn_state->bridge)
 		rockchip_bridge_enable(conn_state->bridge);
 
-	if (panel_state->panel)
+	if (panel_state->panel) {
 		rockchip_panel_enable(panel_state->panel);
+		if (panel_state->panel->init_error)
+			return panel_state->panel->init_error;
+	}
 
 	state->is_enable = true;
 
@@ -716,6 +735,8 @@ static int display_disable(struct display_state *state)
 	const struct rockchip_crtc *crtc = crtc_state->crtc;
 	const struct rockchip_crtc_funcs *crtc_funcs = crtc->funcs;
 	struct panel_state *panel_state = &state->panel_state;
+
+	a36_logo_invalidate();
 
 	if (!state->is_init)
 		return 0;
@@ -810,10 +831,13 @@ static int display_logo(struct display_state *state)
 		}
 	}
 
-	display_set_plane(state);
-	display_enable(state);
+	{
+		int ret = display_set_plane(state);
 
-	return 0;
+		if (ret)
+			return ret;
+	}
+	return display_enable(state);
 }
 
 static int get_crtc_id(ofnode connect)
@@ -1459,6 +1483,8 @@ void rockchip_display_fixup(void *blob)
 	unsigned long bmp_mem;
 	int offset;
 
+	a36_logo_clear(blob);
+
 	if (fdt_node_offset_by_compatible(blob, 0, "rockchip,drm-logo") < 0)
 		return;
 	/* nothing on the screen (no panel, or it was turned off): nothing to hand over */
@@ -1508,6 +1534,8 @@ void rockchip_display_fixup(void *blob)
 	FDT_SET_U32("overscan,top_margin", s->conn_state.overscan.top_margin);
 	FDT_SET_U32("overscan,bottom_margin", s->conn_state.overscan.bottom_margin);
 #undef FDT_SET_U32
+	a36_logo_stage(s,blob,get_drm_memory(),DRM_ROCKCHIP_FB_SIZE+LCD_LOGO_SIZE,
+	               lcd->drm_fb_mem,lcd->w,lcd->h,lcd->bpp);
 }
 
 #else
@@ -1521,6 +1549,8 @@ void rockchip_display_fixup(void *blob)
 	int offset;
 	const struct device_node *np;
 	const char *path;
+
+	a36_logo_clear(blob);
 
 	if (!get_display_size())
 		return;

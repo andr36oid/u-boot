@@ -236,6 +236,7 @@ struct dw_mipi_dsi {
 	struct dw_mipi_dsi *master;
 	struct dw_mipi_dsi *slave;
 	bool prepared;
+	int prepare_error;
 
 	unsigned int lane_mbps; /* per lane */
 	u32 channel;
@@ -467,8 +468,12 @@ static int mipi_dphy_power_on(struct dw_mipi_dsi *dsi)
 	mdelay(2);
 
 	if (dsi->dphy.phy) {
-		rockchip_phy_set_mode(dsi->dphy.phy, PHY_MODE_VIDEO_MIPI);
-		rockchip_phy_power_on(dsi->dphy.phy);
+		ret = rockchip_phy_set_mode(dsi->dphy.phy, PHY_MODE_VIDEO_MIPI);
+		if (ret)
+			return ret;
+		ret = rockchip_phy_power_on(dsi->dphy.phy);
+		if (ret)
+			return ret;
 	}
 
 	ret = readl_poll_timeout(dsi->base + DSI_PHY_STATUS,
@@ -1198,23 +1203,40 @@ static void mipi_dphy_init(struct dw_mipi_dsi *dsi)
 	mipi_dphy_enableclk_assert(dsi);
 }
 
-static void dw_mipi_dsi_pre_enable(struct dw_mipi_dsi *dsi)
+static int dw_mipi_dsi_pre_enable(struct dw_mipi_dsi *dsi)
 {
-	if (dsi->prepared)
-		return;
+	int ret;
 
-	if (dsi->master)
-		dw_mipi_dsi_pre_enable(dsi->master);
+	if (dsi->prepare_error)
+		return dsi->prepare_error;
+	if (dsi->prepared)
+		return 0;
+
+	if (dsi->master) {
+		ret = dw_mipi_dsi_pre_enable(dsi->master);
+		if (ret)
+			goto error;
+	}
 
 	dw_mipi_dsi_host_init(dsi);
 	mipi_dphy_init(dsi);
-	mipi_dphy_power_on(dsi);
+	ret = mipi_dphy_power_on(dsi);
+	if (ret)
+		goto error;
 	dsi_write(dsi, DSI_PWR_UP, POWERUP);
 
 	dsi->prepared = true;
 
-	if (dsi->slave)
-		dw_mipi_dsi_pre_enable(dsi->slave);
+	if (dsi->slave) {
+		ret = dw_mipi_dsi_pre_enable(dsi->slave);
+		if (ret)
+			goto error;
+	}
+	return 0;
+error:
+	dsi->prepare_error = ret;
+	dsi->prepared = false;
+	return ret;
 }
 
 static int dw_mipi_dsi_connector_prepare(struct display_state *state)
@@ -1241,9 +1263,7 @@ static int dw_mipi_dsi_connector_prepare(struct display_state *state)
 	       dsi->lane_mbps, dsi->slave ? dsi->lanes * 2 : dsi->lanes);
 
 	dw_mipi_dsi_vop_routing(dsi, crtc_state->crtc_id);
-	dw_mipi_dsi_pre_enable(dsi);
-
-	return 0;
+	return dw_mipi_dsi_pre_enable(dsi);
 }
 
 static void dw_mipi_dsi_connector_unprepare(struct display_state *state)

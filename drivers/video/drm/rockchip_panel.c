@@ -88,48 +88,23 @@ static inline int get_panel_cmd_type(const char *s)
 	return CMD_TYPE_DEFAULT;
 }
 
-static int rockchip_panel_parse_cmds(const u8 *data, int length,
-				     struct rockchip_panel_cmds *pcmds)
+static int rockchip_panel_parse_cmds(const u8 *data,int length,
+                                     struct rockchip_panel_cmds *pcmds)
 {
-	int len;
-	const u8 *buf;
-	const struct rockchip_cmd_header *header;
-	int i, cnt = 0;
-
-	/* scan commands */
-	cnt = 0;
-	buf = data;
-	len = length;
-	while (len > sizeof(*header)) {
-		header = (const struct rockchip_cmd_header *)buf;
-		buf += sizeof(*header) + header->payload_length;
-		len -= sizeof(*header) + header->payload_length;
-		cnt++;
-	}
-
-	pcmds->cmds = calloc(cnt, sizeof(struct rockchip_cmd_desc));
-	if (!pcmds->cmds)
-		return -ENOMEM;
-
-	pcmds->cmd_cnt = cnt;
-
-	buf = data;
-	len = length;
-	for (i = 0; i < cnt; i++) {
-		struct rockchip_cmd_desc *desc = &pcmds->cmds[i];
-
-		header = (const struct rockchip_cmd_header *)buf;
-		length -= sizeof(*header);
-		buf += sizeof(*header);
-		desc->header.data_type = header->data_type;
-		desc->header.delay_ms = header->delay_ms;
-		desc->header.payload_length = header->payload_length;
-		desc->payload = buf;
-		buf += header->payload_length;
-		length -= header->payload_length;
-	}
-
-	return 0;
+ const u8 *p=data;int len=length,count=0,i;
+ if(!data || length<=0 || length>16384)return -EINVAL;
+ while(len) {
+  if(len<3 || p[2]>len-3)return -EINVAL;
+  len-=3+p[2];p+=3+p[2];count++;
+ }
+ pcmds->cmds=calloc(count,sizeof(*pcmds->cmds));
+ if(!pcmds->cmds)return -ENOMEM;
+ pcmds->cmd_cnt=count;p=data;
+ for(i=0;i<count;i++) {
+  struct rockchip_cmd_desc *d=&pcmds->cmds[i];
+  memcpy(&d->header,p,3);d->payload=p+3;p+=3+p[2];
+ }
+ return 0;
 }
 
 static void rockchip_panel_write_spi_cmds(struct rockchip_panel_priv *priv,
@@ -244,6 +219,9 @@ static int rockchip_panel_send_dsi_cmds(struct mipi_dsi_device *dsi,
 			return -EINVAL;
 		}
 
+		/* Transport must report the exact payload, including short packets. */
+		if (ret >= 0 && ret != header->payload_length)
+			ret = -EIO;
 		if (ret < 0) {
 			printf("failed to write cmd%d: %d\n", i, ret);
 			return ret;
@@ -273,6 +251,50 @@ static int rockchip_panel_send_dsi_cmds(struct mipi_dsi_device *dsi,
 	return 0;
 }
 
+#if defined(CONFIG_PLATFORM_ODROID_GOADV)
+/* A GPIO-switched fixed rail has no programmable voltage operation. Require
+ * one exact positive constraint and matching declared readback instead of
+ * swallowing ENOSYS from an arbitrary regulator. GPIO enable is checked by
+ * the ordinary prepare path and again by the final handoff verifier.
+ */
+static int panel_simple_set_supply_voltage(struct udevice *panel_dev,
+                                            struct udevice *supply)
+{
+ struct dm_regulator_uclass_platdata *plat = dev_get_uclass_platdata(supply);
+ int value;
+
+ if (!plat)
+  return -ENODEV;
+ if (plat->type != REGULATOR_TYPE_FIXED ||
+     !dev_read_bool(panel_dev, "andr36oid,checked-fixed-panel-supply"))
+  return regulator_set_value(supply, plat->min_uV);
+ if (plat->min_uV <= 0 || plat->min_uV != plat->max_uV)
+  return -EINVAL;
+ value = regulator_get_value(supply);
+ if (value < 0)
+  return value;
+ return value == plat->min_uV ? 0 : -ERANGE;
+}
+/* For the opt-in Ultra alignment, verify the completed on-sequence while
+ * the host is still in command mode and before display_enable starts VOP.
+ * Keep the DT-selected LP transfer flag here; the final in-video verifier
+ * separately checks the state again immediately before the kernel jump.
+ */
+static int panel_simple_check_power_mode(struct mipi_dsi_device *dsi)
+{
+ u8 status = 0;
+ int ret;
+
+ if (!dsi)
+  return -ENODEV;
+ ret = mipi_dsi_dcs_read(dsi, 0x0a, &status, 1);
+ if (ret < 0)
+  return ret;
+ return ret == 1 && (status & 0x1c) == 0x1c ? 0 : -EIO;
+}
+
+#endif
+
 static void panel_simple_prepare(struct rockchip_panel *panel)
 {
 	struct rockchip_panel_plat *plat = dev_get_platdata(panel->dev);
@@ -280,49 +302,60 @@ static void panel_simple_prepare(struct rockchip_panel *panel)
 	struct mipi_dsi_device *dsi = dev_get_parent_platdata(panel->dev);
 	int ret;
 
-	if (priv->prepared)
+	if (panel->init_error || priv->prepared)
 		return;
+	panel->prepared_checked = false;
+	a36_logo_invalidate();
 
 	if (priv->power_supply) {
 #if defined(CONFIG_PLATFORM_ODROID_GOADV)
-		struct dm_regulator_uclass_platdata *uc_pdata;
-
-		uc_pdata = dev_get_uclass_platdata(priv->power_supply);
-		regulator_set_value(priv->power_supply, uc_pdata->min_uV);
+		ret = panel_simple_set_supply_voltage(panel->dev, priv->power_supply);
+		if (ret)
+			goto error;
 #endif
-		regulator_set_enable(priv->power_supply, !plat->power_invert);
+		ret = regulator_set_enable(priv->power_supply, !plat->power_invert);
+		if (ret)
+			goto error;
 	}
 
 #if defined(CONFIG_PLATFORM_ODROID_GOADV)
 	if (priv->backlight_supply) {
-		struct dm_regulator_uclass_platdata *uc_pdata;
-
-		uc_pdata = dev_get_uclass_platdata(priv->backlight_supply);
-		regulator_set_value(priv->backlight_supply, uc_pdata->min_uV);
+		ret = panel_simple_set_supply_voltage(panel->dev, priv->backlight_supply);
+		if (ret)
+			goto error;
 
 		ret = regulator_set_enable(priv->backlight_supply, 1);
 		if (ret) {
 			printf("%s: failed to enable backlight supply",
 				__func__);
-			return;
+			goto error;
 		}
 	}
 #endif
 
-	if (dm_gpio_is_valid(&priv->enable_gpio))
-		dm_gpio_set_value(&priv->enable_gpio, 1);
+	if (dm_gpio_is_valid(&priv->enable_gpio)) {
+		ret = dm_gpio_set_value(&priv->enable_gpio, 1);
+		if (ret)
+			goto error;
+	}
 
 	if (plat->delay.prepare)
 		mdelay(plat->delay.prepare);
 
-	if (dm_gpio_is_valid(&priv->reset_gpio))
-		dm_gpio_set_value(&priv->reset_gpio, 1);
+	if (dm_gpio_is_valid(&priv->reset_gpio)) {
+		ret = dm_gpio_set_value(&priv->reset_gpio, 1);
+		if (ret)
+			goto error;
+	}
 
 	if (plat->delay.reset)
 		mdelay(plat->delay.reset);
 
-	if (dm_gpio_is_valid(&priv->reset_gpio))
-		dm_gpio_set_value(&priv->reset_gpio, 0);
+	if (dm_gpio_is_valid(&priv->reset_gpio)) {
+		ret = dm_gpio_set_value(&priv->reset_gpio, 0);
+		if (ret)
+			goto error;
+	}
 
 	if (plat->delay.init)
 		mdelay(plat->delay.init);
@@ -336,11 +369,28 @@ static void panel_simple_prepare(struct rockchip_panel *panel)
 							   plat->on_cmds);
 		else
 			ret = rockchip_panel_send_dsi_cmds(dsi, plat->on_cmds);
-		if (ret)
+		if (ret) {
 			printf("failed to send on cmds: %d\n", ret);
+			goto error;
+		}
 	}
 
+#if defined(CONFIG_PLATFORM_ODROID_GOADV)
+ if (dev_read_bool(panel->dev, "andr36oid,checked-fixed-panel-supply")) {
+  ret = panel_simple_check_power_mode(dsi);
+  if (ret)
+   goto error;
+ }
+#endif
+
 	priv->prepared = true;
+	panel->prepared_checked = true;
+	return;
+error:
+	/* Do not assert reset/power-off without a checked scanout stop. */
+	panel->init_error = ret ? ret : -EIO;
+	panel->prepared_checked = false;
+	printf("panel init transaction failed: %d\n", panel->init_error);
 }
 
 static void panel_simple_unprepare(struct rockchip_panel *panel)
@@ -350,6 +400,7 @@ static void panel_simple_unprepare(struct rockchip_panel *panel)
 	struct mipi_dsi_device *dsi = dev_get_parent_platdata(panel->dev);
 	int ret;
 
+	a36_logo_invalidate();
 	if (!priv->prepared)
 		return;
 
@@ -396,23 +447,35 @@ static void panel_simple_unprepare(struct rockchip_panel *panel)
 		mdelay(plat->delay.unprepare);
 
 	priv->prepared = false;
+	panel->prepared_checked = false;
 }
 
 static void panel_simple_enable(struct rockchip_panel *panel)
 {
 	struct rockchip_panel_plat *plat = dev_get_platdata(panel->dev);
 	struct rockchip_panel_priv *priv = dev_get_priv(panel->dev);
+	int ret;
 
-	if (priv->enabled)
+	if (panel->init_error || priv->enabled)
 		return;
+	if (!panel->prepared_checked) {
+		panel->init_error = -EIO;
+		return;
+	}
 
 	if (plat->delay.enable)
 		mdelay(plat->delay.enable);
 
-	if (priv->backlight)
-		backlight_enable(priv->backlight);
+	if (priv->backlight) {
+		ret = backlight_enable(priv->backlight);
+		if (ret) {
+			panel->init_error = ret;
+			return;
+		}
+	}
 
 	priv->enabled = true;
+	panel->enabled_checked = true;
 }
 
 static void panel_simple_disable(struct rockchip_panel *panel)
@@ -420,6 +483,7 @@ static void panel_simple_disable(struct rockchip_panel *panel)
 	struct rockchip_panel_plat *plat = dev_get_platdata(panel->dev);
 	struct rockchip_panel_priv *priv = dev_get_priv(panel->dev);
 
+	a36_logo_invalidate();
 	if (!priv->enabled)
 		return;
 
@@ -430,6 +494,7 @@ static void panel_simple_disable(struct rockchip_panel *panel)
 		mdelay(plat->delay.disable);
 
 	priv->enabled = false;
+	panel->enabled_checked = false;
 }
 
 static void panel_simple_init(struct rockchip_panel *panel)
@@ -612,3 +677,23 @@ U_BOOT_DRIVER(rockchip_panel) = {
 	.priv_auto_alloc_size = sizeof(struct rockchip_panel_priv),
 	.platdata_auto_alloc_size = sizeof(struct rockchip_panel_plat),
 };
+
+int rockchip_panel_loader_status(struct rockchip_panel *panel,u8 *status)
+{
+ struct rockchip_panel_plat *plat;struct rockchip_panel_priv *priv;
+ struct mipi_dsi_device *dsi;unsigned long flags;int ret;
+ if(!panel || panel->funcs!=&rockchip_panel_funcs || panel->init_error ||
+    !panel->prepared_checked || !panel->enabled_checked)return -EINVAL;
+ plat=dev_get_platdata(panel->dev);priv=dev_get_priv(panel->dev);
+ if(plat->power_invert || !priv->prepared || !priv->enabled ||
+    priv->cmd_type==CMD_TYPE_SPI || priv->cmd_type==CMD_TYPE_MCU)return -EINVAL;
+ if(priv->power_supply && regulator_get_enable(priv->power_supply)!=1)return -EIO;
+ if(priv->backlight_supply && regulator_get_enable(priv->backlight_supply)!=1)return -EIO;
+ if(dm_gpio_is_valid(&priv->enable_gpio) && dm_gpio_get_value(&priv->enable_gpio)!=1)return -EIO;
+ if(dm_gpio_is_valid(&priv->reset_gpio) && dm_gpio_get_value(&priv->reset_gpio)!=0)return -EIO;
+ dsi=dev_get_parent_platdata(panel->dev);if(!dsi)return -EINVAL;
+ flags=dsi->mode_flags;dsi->mode_flags&=~MIPI_DSI_MODE_LPM;
+ ret=mipi_dsi_dcs_read(dsi,0x0a,status,1);dsi->mode_flags=flags;
+ if(ret<0)return ret;
+ return ret==1 && (*status&0x1c)==0x1c ? 0:-EIO;
+}
