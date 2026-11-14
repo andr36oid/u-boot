@@ -24,6 +24,7 @@
 #include "rockchip_crtc.h"
 #include "rockchip_connector.h"
 #include "rockchip_panel.h"
+#include "a36-logo-diag.h"
 
 struct rockchip_cmd_header {
 	u8 data_type;
@@ -682,18 +683,35 @@ int rockchip_panel_loader_status(struct rockchip_panel *panel,u8 *status)
 {
  struct rockchip_panel_plat *plat;struct rockchip_panel_priv *priv;
  struct mipi_dsi_device *dsi;unsigned long flags;int ret;
+#define PANEL_RETURN(reason, error) do { \
+ a36_logo_diag_panel(A36_D_PANEL_REASON,reason); \
+ a36_logo_diag_panel(A36_D_PANEL_RESULT,error);return error; \
+} while (0)
  if(!panel || panel->funcs!=&rockchip_panel_funcs || panel->init_error ||
-    !panel->prepared_checked || !panel->enabled_checked)return -EINVAL;
+    !panel->prepared_checked || !panel->enabled_checked)PANEL_RETURN(1,-EINVAL);
  plat=dev_get_platdata(panel->dev);priv=dev_get_priv(panel->dev);
+ a36_logo_diag_panel(A36_D_POWER_INVERT,plat->power_invert);
+ a36_logo_diag_panel(A36_D_PRIVATE_PREPARED,priv->prepared);
+ a36_logo_diag_panel(A36_D_PRIVATE_ENABLED,priv->enabled);
+ a36_logo_diag_panel(A36_D_COMMAND_TYPE,priv->cmd_type);
  if(plat->power_invert || !priv->prepared || !priv->enabled ||
-    priv->cmd_type==CMD_TYPE_SPI || priv->cmd_type==CMD_TYPE_MCU)return -EINVAL;
- if(priv->power_supply && regulator_get_enable(priv->power_supply)!=1)return -EIO;
- if(priv->backlight_supply && regulator_get_enable(priv->backlight_supply)!=1)return -EIO;
- if(dm_gpio_is_valid(&priv->enable_gpio) && dm_gpio_get_value(&priv->enable_gpio)!=1)return -EIO;
- if(dm_gpio_is_valid(&priv->reset_gpio) && dm_gpio_get_value(&priv->reset_gpio)!=0)return -EIO;
- dsi=dev_get_parent_platdata(panel->dev);if(!dsi)return -EINVAL;
+    priv->cmd_type==CMD_TYPE_SPI || priv->cmd_type==CMD_TYPE_MCU)PANEL_RETURN(2,-EINVAL);
+ if(priv->power_supply){ret=regulator_get_enable(priv->power_supply);
+  a36_logo_diag_panel(A36_D_SUPPLY,ret);if(ret!=1)PANEL_RETURN(3,-EIO);}
+ if(priv->backlight_supply){ret=regulator_get_enable(priv->backlight_supply);
+  a36_logo_diag_panel(A36_D_BACKLIGHT_SUPPLY,ret);if(ret!=1)PANEL_RETURN(4,-EIO);}
+ if(dm_gpio_is_valid(&priv->enable_gpio)){ret=dm_gpio_get_value(&priv->enable_gpio);
+  a36_logo_diag_panel(A36_D_ENABLE_GPIO,ret);if(ret!=1)PANEL_RETURN(5,-EIO);}
+ if(dm_gpio_is_valid(&priv->reset_gpio)){ret=dm_gpio_get_value(&priv->reset_gpio);
+  a36_logo_diag_panel(A36_D_RESET_GPIO,ret);if(ret!=0)PANEL_RETURN(6,-EIO);}
+ dsi=dev_get_parent_platdata(panel->dev);if(!dsi)PANEL_RETURN(7,-EINVAL);
  flags=dsi->mode_flags;dsi->mode_flags&=~MIPI_DSI_MODE_LPM;
+ a36_logo_diag_panel(A36_D_DSI_FLAGS,flags);
  ret=mipi_dsi_dcs_read(dsi,0x0a,status,1);dsi->mode_flags=flags;
- if(ret<0)return ret;
- return ret==1 && (*status&0x1c)==0x1c ? 0:-EIO;
+ a36_logo_diag_panel(A36_D_DCS_RET,ret);
+ if(ret<0)PANEL_RETURN(8,ret);
+ if(ret!=1)PANEL_RETURN(9,-EIO);
+ if((*status&0x1c)!=0x1c)PANEL_RETURN(10,-EIO);
+ PANEL_RETURN(0,0);
+#undef PANEL_RETURN
 }

@@ -11,12 +11,58 @@
 #include "rockchip_panel.h"
 #include "a36-logo-proof.h"
 #include "a36-logo-hardware.h"
+#include "a36-logo-diag.h"
 DECLARE_GLOBAL_DATA_PTR;
 static struct display_state *staged;
 static unsigned int generation,staged_generation;
 static unsigned long staged_base,staged_size,staged_fb;
 static unsigned int staged_width,staged_height,staged_bpp;
 static void *staged_blob;
+/* HELD diagnostics only. These records never authorize adoption. No new
+ * hardware reads, writes, retries or storage I/O are performed here.
+ */
+static u8 handoff_diag[A36_DIAG_BYTES];
+static unsigned int finalizer_calls;
+static void diag_word(unsigned int word, u32 value)
+{
+ if (word < A36_D_CRC)
+  a36_logo_put(handoff_diag, word, value);
+}
+void a36_logo_diag_panel(unsigned int word, int value)
+{
+ diag_word(word, (u32)value);
+}
+static void diag_reset(void)
+{
+ memset(handoff_diag, 0xff, sizeof(handoff_diag));
+ diag_word(A36_D_MAGIC, A36_DIAG_MAGIC);
+ diag_word(A36_D_VERSION, 1);
+ diag_word(A36_D_LENGTH, sizeof(handoff_diag));
+ diag_word(A36_D_STAGE, 1);
+ diag_word(A36_D_REASON, A36_R_STAGED);
+ diag_word(A36_D_ERRNO, 0);
+ diag_word(A36_D_CALLS, finalizer_calls);
+}
+static void diag_commit(void *blob)
+{
+ int route;
+ if (!blob || fdt_check_header(blob))return;
+ route=fdt_path_offset(blob,A36_LOGO_ROUTE);
+ if (route<0)return;
+ a36_logo_put(handoff_diag,A36_D_CRC,
+              a36_logo_crc(handoff_diag,A36_D_CRC*4));
+ /* Staging reserves the complete property. Never grow the final FDT. */
+ (void)fdt_setprop_inplace(blob,route,A36_DIAG_PROPERTY,
+                         handoff_diag,sizeof(handoff_diag));
+}
+static void diag_finish(void *blob, unsigned int reason, int error)
+{
+ diag_word(A36_D_REASON,reason);diag_word(A36_D_ERRNO,(u32)error);
+ diag_commit(blob);
+}
+#define DIAG_RETURN(reason, error) do { \
+ diag_finish(blob,A36_R_##reason,error); return; \
+} while (0)
 static void blank_record(void *blob)
 {
  u8 zero[A36_LOGO_BYTES]={0};int route;
@@ -39,7 +85,9 @@ restart:
  node=-1;depth=0;
  while((node=fdt_next_node(blob,node,&depth))>=0) {
   p=fdt_getprop(blob,node,A36_LOGO_PROPERTY,&len);
-  if(p){fdt_delprop(blob,node,A36_LOGO_PROPERTY);goto restart;}
+  if(!p)p=fdt_getprop(blob,node,A36_DIAG_PROPERTY,&len);
+  if(p && fdt_getprop(blob,node,A36_LOGO_PROPERTY,&len)){fdt_delprop(blob,node,A36_LOGO_PROPERTY);goto restart;}
+  if(p){fdt_delprop(blob,node,A36_DIAG_PROPERTY);goto restart;}
  }
 }
 static int matching_contract(void *blob,u8 digest[32])
@@ -78,18 +126,35 @@ void a36_logo_stage(struct display_state *s,void *blob,unsigned long base,
  staged=s;staged_generation=generation;staged_blob=NULL; /* FDT may relocate. */
  staged_base=base;staged_size=size;staged_fb=fb;staged_width=width;
  staged_height=height;staged_bpp=bpp;
+ /* Optional diagnostic allocation must not turn a successful proof stage
+  * into a failure. The original token path above is unchanged.
+  */
+ diag_reset();
+ if (!fdt_increase_size(blob,A36_DIAG_BYTES+64)) {
+  route=fdt_path_offset(blob,A36_LOGO_ROUTE);
+  if (route>=0 && !fdt_setprop(blob,route,A36_DIAG_PROPERTY,
+                            handoff_diag,sizeof(handoff_diag)))
+   diag_commit(blob);
+ }
 }
 static int fresh_frame(void)
 {
- ulong started=get_timer(0);u32 enabled=readl((void *)0xff460034)&1;int ret=-ETIMEDOUT;
- if((readl((void *)0xff460018)&2) || !(readl((void *)0xff460020)&(1U<<24)))return -EIO;
+ ulong started=get_timer(0);u32 enabled=readl((void *)0xff460034)&1;
+ u32 value;int ret=-ETIMEDOUT;
+ diag_word(A36_D_VOP_ENABLE,enabled);
+ value=readl((void *)0xff460018);diag_word(A36_D_VOP_SYS,value);
+ if(value&2){diag_word(A36_D_REASON,A36_R_FRAME_STANDBY);return -EIO;}
+ value=readl((void *)0xff460020);diag_word(A36_D_VOP_DSP,value);
+ if(!(value&(1U<<24))){diag_word(A36_D_REASON,A36_R_FRAME_MIPI);return -EIO;}
  writel(0x00010001,(void *)0xff460038);
  writel(0x00010001,(void *)0xff460034);
  while(get_timer(started)<100) {
-  if(readl((void *)0xff46003c)&1){ret=0;break;}
+  value=readl((void *)0xff46003c);diag_word(A36_D_VOP_STATUS,value);
+  if(value&1){ret=0;break;}
   udelay(100);
  }
  writel(0x00010000|enabled,(void *)0xff460034);
+ if(ret)diag_word(A36_D_REASON,A36_R_FRAME_TIMEOUT);
  return ret;
 }
 void rockchip_display_finalize_handoff(void *blob)
@@ -97,29 +162,59 @@ void rockchip_display_finalize_handoff(void *blob)
  u8 record[A36_LOGO_BYTES]={0},digest[32],status=0;
  struct display_state *s=staged;struct rockchip_panel *panel;
  struct drm_display_mode *m;struct clk clk;ulong actual;
- u32 cmd,video,lp,pitch;int route,ret,i;u32 fields[10];
- /* A completion attempt is one-shot, including failures. */
+ u32 cmd,video,lp,pitch,value;int route,ret,i;u32 fields[10];
  staged=NULL;
- /* final_fdt may differ from the earlier fixup pointer after relocation. */
  staged_blob=blob;blank_record(blob);
- if(!s || generation!=staged_generation || !s->is_enable || !blob ||
-    fdt_check_header(blob) || matching_contract(blob,digest))return;
- panel=state_get_panel(s);if(!panel || panel->init_error ||
-  !panel->prepared_checked || !panel->enabled_checked)return;
- m=&s->conn_state.mode;
- if(m->clock<=0 || m->clock>300000 ||
-    clk_get_by_name(s->crtc_state.dev,"dclk_vop",&clk))return;
+ if(a36_logo_get(handoff_diag,A36_D_MAGIC)!=A36_DIAG_MAGIC)diag_reset();
+ diag_word(A36_D_STAGE,2);diag_word(A36_D_CALLS,++finalizer_calls);
+ diag_word(A36_D_GENERATION,generation);
+ diag_word(A36_D_STAGED_GENERATION,staged_generation);
+ diag_finish(blob,A36_R_ENTERED,0);
+ if(!s)DIAG_RETURN(NO_STAGE,-ENODATA);
+ if(generation!=staged_generation)DIAG_RETURN(GENERATION,-ESTALE);
+ diag_word(A36_D_DISPLAY_ENABLED,s->is_enable);
+ if(!s->is_enable)DIAG_RETURN(DISPLAY_OFF,-EIO);
+ if(!blob)DIAG_RETURN(BAD_FDT,-EINVAL);
+ ret=fdt_check_header(blob);if(ret)DIAG_RETURN(BAD_FDT,ret);
+ ret=matching_contract(blob,digest);if(ret)DIAG_RETURN(CONTRACT,ret);
+ diag_word(A36_D_STAGE,3);
+ panel=state_get_panel(s);if(!panel)DIAG_RETURN(NO_PANEL,-ENODEV);
+ diag_word(A36_D_PANEL_INIT_ERROR,panel->init_error);
+ if(panel->init_error)DIAG_RETURN(PANEL_INIT,panel->init_error);
+ diag_word(A36_D_PANEL_PREPARED,panel->prepared_checked);
+ if(!panel->prepared_checked)DIAG_RETURN(PANEL_PREPARED,-EIO);
+ diag_word(A36_D_PANEL_ENABLED,panel->enabled_checked);
+ if(!panel->enabled_checked)DIAG_RETURN(PANEL_ENABLED,-EIO);
+ diag_word(A36_D_STAGE,4);
+ m=&s->conn_state.mode;diag_word(A36_D_EXPECTED_DCLK,m->clock*1000U);
+ if(m->clock<=0 || m->clock>300000)DIAG_RETURN(BAD_CLOCK,-EINVAL);
+ ret=clk_get_by_name(s->crtc_state.dev,"dclk_vop",&clk);
+ if(ret)DIAG_RETURN(CLOCK_LOOKUP,ret);
  actual=clk_get_rate(&clk);clk_free(&clk);
- if(actual!=(ulong)m->clock*1000)return;
- if(readl((void *)0xff450004)!=1 || readl((void *)0xff450034)!=0 ||
-    !(readl((void *)0xff4500b0)&1) ||
-    (readl((void *)0xff45003c)&0x3fff)!=m->hdisplay)return;
+ diag_word(A36_D_ACTUAL_DCLK,actual);
+ if(actual!=(ulong)m->clock*1000)DIAG_RETURN(CLOCK_RATE,-ERANGE);
+ diag_word(A36_D_STAGE,5);
+ value=readl((void *)0xff450004);diag_word(A36_D_DSI_POWER,value);
+ if(value!=1)DIAG_RETURN(DSI_POWER,-EIO);
+ value=readl((void *)0xff450034);diag_word(A36_D_DSI_MODE,value);
+ if(value!=0)DIAG_RETURN(DSI_MODE,-EIO);
+ value=readl((void *)0xff4500b0);diag_word(A36_D_DSI_PHY,value);
+ if(!(value&1))DIAG_RETURN(DSI_PHY,-EIO);
+ value=readl((void *)0xff45003c);diag_word(A36_D_DSI_PACKET,value);
+ if((value&0x3fff)!=m->hdisplay)DIAG_RETURN(DSI_PACKET,-EIO);
  cmd=readl((void *)0xff450068);video=readl((void *)0xff450038);
  lp=readl((void *)0xff450094);
+ diag_word(A36_D_DSI_CMD,cmd);diag_word(A36_D_DSI_VIDEO,video);
+ diag_word(A36_D_DSI_LP,lp);diag_word(A36_D_STAGE,6);
  ret=rockchip_panel_loader_status(panel,&status);
+ diag_word(A36_D_STATUS_RET,ret);diag_word(A36_D_DCS_STATUS,status);
  writel(cmd,(void *)0xff450068);writel(video,(void *)0xff450038);
  writel(lp,(void *)0xff450094);
- if(ret || fresh_frame())return;
+ if(ret)DIAG_RETURN(PANEL_STATUS,ret);
+ diag_word(A36_D_STAGE,7);
+ ret=fresh_frame();
+ if(ret){diag_finish(blob,a36_logo_get(handoff_diag,A36_D_REASON),ret);return;}
+ diag_word(A36_D_STAGE,8);
  a36_logo_put(record,A36_L_MAGIC,A36_LOGO_MAGIC);
  a36_logo_put(record,A36_L_VERSION,A36_LOGO_VERSION);
  a36_logo_put(record,A36_L_LENGTH,sizeof(record));
@@ -142,14 +237,18 @@ void rockchip_display_finalize_handoff(void *blob)
  for(i=0;i<A36_LOGO_HW_COUNT;i++)
   a36_logo_put(record,A36_L_HW+i,readl((void *)(ulong)a36_logo_registers[i].address)&a36_logo_registers[i].mask);
  a36_logo_put(record,A36_L_CRC,a36_logo_crc(record,A36_L_CRC*4));
- if(a36_logo_wire_valid(record,sizeof(record)))return;
- route=fdt_path_offset(blob,A36_LOGO_ROUTE);if(route<0)return;
- /* No further FDT allocation/relocation at this stage. Cache cleanup follows. */
- if(fdt_setprop_inplace(blob,route,A36_LOGO_PROPERTY,record,sizeof(record)))return;
+ ret=a36_logo_wire_valid(record,sizeof(record));diag_word(A36_D_WIRE_RET,ret);
+ if(ret)DIAG_RETURN(BAD_WIRE,ret);
+ route=fdt_path_offset(blob,A36_LOGO_ROUTE);if(route<0)DIAG_RETURN(NO_ROUTE,route);
+ ret=fdt_setprop_inplace(blob,route,A36_LOGO_PROPERTY,record,sizeof(record));
+ diag_word(A36_D_WRITE_RET,ret);if(ret)DIAG_RETURN(WRITE_TOKEN,ret);
+ diag_word(A36_D_STAGE,9);diag_finish(blob,A36_R_SUCCESS,0);
  printf("LOGO32: checked loader proof published at final handoff\n");
  staged=NULL;
 }
+
 #else
+void a36_logo_diag_panel(unsigned int word,int value){}
 void a36_logo_invalidate(void){}
 void a36_logo_clear(void *blob){}
 void a36_logo_stage(struct display_state *s,void *b,unsigned long base,
