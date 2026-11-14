@@ -23,6 +23,7 @@
 #include "rockchip_crtc.h"
 #include "rockchip_connector.h"
 #include "rockchip_panel.h"
+#include "a36-logo-diag.h"
 #include "rockchip_phy.h"
 
 #define UPDATE(v, h, l)		(((v) << (l)) & GENMASK((h), (l)))
@@ -268,6 +269,12 @@ static inline void dsi_update_bits(struct dw_mipi_dsi *dsi,
 	tmp = orig & ~mask;
 	tmp |= val & mask;
 	dsi_write(dsi, reg, tmp);
+	if (reg == DSI_CMD_MODE_CFG)
+		a36_logo_diag_panel(A36_D_XFER_CMD_CFG, tmp);
+	else if (reg == DSI_VID_MODE_CFG)
+		a36_logo_diag_panel(A36_D_XFER_VIDEO_CFG, tmp);
+	else if (reg == DSI_LPCLK_CTRL)
+		a36_logo_diag_panel(A36_D_XFER_LPCLK, tmp);
 }
 
 static void grf_field_write(struct dw_mipi_dsi *dsi, enum grf_reg_fields index,
@@ -306,6 +313,7 @@ static int genif_wait_w_pld_fifo_not_full(struct dw_mipi_dsi *dsi)
 	ret = readl_poll_timeout(dsi->base + DSI_CMD_PKT_STATUS,
 				 sts, !(sts & GEN_PLD_W_FULL),
 				 CMD_PKT_STATUS_TIMEOUT_US);
+	a36_logo_diag_panel(A36_D_XFER_CMD_STATUS, sts);
 	if (ret < 0) {
 		printf("generic write payload fifo is full\n");
 		return ret;
@@ -322,6 +330,7 @@ static int genif_wait_cmd_fifo_not_full(struct dw_mipi_dsi *dsi)
 	ret = readl_poll_timeout(dsi->base + DSI_CMD_PKT_STATUS,
 				 sts, !(sts & GEN_CMD_FULL),
 				 CMD_PKT_STATUS_TIMEOUT_US);
+	a36_logo_diag_panel(A36_D_XFER_CMD_STATUS, sts);
 	if (ret < 0) {
 		printf("generic write cmd fifo is full\n");
 		return ret;
@@ -340,6 +349,7 @@ static int genif_wait_write_fifo_empty(struct dw_mipi_dsi *dsi)
 	ret = readl_poll_timeout(dsi->base + DSI_CMD_PKT_STATUS,
 				 sts, (sts & mask) == mask,
 				 CMD_PKT_STATUS_TIMEOUT_US);
+	a36_logo_diag_panel(A36_D_XFER_CMD_STATUS, sts);
 	if (ret < 0) {
 		printf("generic write fifo is full\n");
 		return ret;
@@ -659,22 +669,31 @@ static int dw_mipi_dsi_read_from_fifo(struct dw_mipi_dsi *dsi,
 	u32 val;
 	int ret;
 
+	a36_logo_diag_panel(A36_D_XFER_STAGE, 6);
 	ret = readl_poll_timeout(dsi->base + DSI_CMD_PKT_STATUS,
-				 val, !(val & GEN_RD_CMD_BUSY), 5000);
+				 val, !(val & GEN_RD_CMD_BUSY),
+				 CMD_PKT_STATUS_TIMEOUT_US);
+	a36_logo_diag_panel(A36_D_XFER_CMD_STATUS, val);
 	if (ret) {
+		a36_logo_diag_panel(A36_D_XFER_ERRNO, ret);
 		printf("entire response isn't stored in the FIFO\n");
 		return ret;
 	}
 
 	/* Receive payload */
 	for (length = msg->rx_len; length; length -= 4) {
+		a36_logo_diag_panel(A36_D_XFER_STAGE, 7);
 		ret = readl_poll_timeout(dsi->base + DSI_CMD_PKT_STATUS,
-					 val, !(val & GEN_PLD_R_EMPTY), 5000);
+					 val, !(val & GEN_PLD_R_EMPTY),
+					 CMD_PKT_STATUS_TIMEOUT_US);
+		a36_logo_diag_panel(A36_D_XFER_CMD_STATUS, val);
 		if (ret) {
+			a36_logo_diag_panel(A36_D_XFER_ERRNO, ret);
 			printf("Read payload FIFO is empty\n");
 			return ret;
 		}
 
+		a36_logo_diag_panel(A36_D_XFER_STAGE, 8);
 		val = dsi_read(dsi, DSI_GEN_PLD_DATA);
 
 		switch (length) {
@@ -724,6 +743,22 @@ static ssize_t dw_mipi_dsi_transfer(struct dw_mipi_dsi *dsi,
 	int ret;
 	int val;
 
+	a36_logo_diag_panel(A36_D_XFER_STAGE, 1);
+	a36_logo_diag_panel(A36_D_XFER_ERRNO, 0);
+	a36_logo_diag_panel(A36_D_XFER_MSG_FLAGS, msg->flags);
+	a36_logo_diag_panel(A36_D_XFER_HOST_FLAGS, dsi->mode_flags);
+	a36_logo_diag_panel(A36_D_XFER_TYPE, msg->type);
+	a36_logo_diag_panel(A36_D_XFER_RX_LEN, msg->rx_len);
+	if (msg->rx_len) {
+		/* Read-only context for an attempted BTA, after the caller's
+		 * powered-host checks. No IRQ/status-clear register is read.
+		 */
+		a36_logo_diag_panel(A36_D_XFER_PCKHDL, dsi_read(dsi, DSI_PCKHDL_CFG));
+		a36_logo_diag_panel(A36_D_XFER_TO_CNT, dsi_read(dsi, DSI_TO_CNT_CFG));
+		a36_logo_diag_panel(A36_D_XFER_BTA_TO, dsi_read(dsi, DSI_BTA_TO_CNT));
+		a36_logo_diag_panel(A36_D_XFER_LP_CMD_TIM, dsi_read(dsi, DSI_DPI_LP_CMD_TIM));
+	}
+
 	if (msg->flags & MIPI_DSI_MSG_USE_LPM) {
 		dsi_update_bits(dsi, DSI_VID_MODE_CFG, LP_CMD_EN, LP_CMD_EN);
 		dsi_update_bits(dsi, DSI_LPCLK_CTRL, PHY_TXREQUESTCLKHS, 0);
@@ -740,65 +775,66 @@ static ssize_t dw_mipi_dsi_transfer(struct dw_mipi_dsi *dsi,
 		return dw_mipi_dsi_turn_on_peripheral(dsi);
 	case MIPI_DSI_DCS_SHORT_WRITE:
 		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, DCS_SW_0P_TX,
-				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				msg->flags & MIPI_DSI_MSG_USE_LPM ?
 				DCS_SW_0P_TX : 0);
 		break;
 	case MIPI_DSI_DCS_SHORT_WRITE_PARAM:
 		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, DCS_SW_1P_TX,
-				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				msg->flags & MIPI_DSI_MSG_USE_LPM ?
 				DCS_SW_1P_TX : 0);
 		break;
 	case MIPI_DSI_DCS_LONG_WRITE:
 		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, DCS_LW_TX,
-				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				msg->flags & MIPI_DSI_MSG_USE_LPM ?
 				DCS_LW_TX : 0);
 		break;
 	case MIPI_DSI_DCS_READ:
 		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, DCS_SR_0P_TX,
-				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				msg->flags & MIPI_DSI_MSG_USE_LPM ?
 				DCS_SR_0P_TX : 0);
 		break;
 	case MIPI_DSI_SET_MAXIMUM_RETURN_PACKET_SIZE:
 		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, MAX_RD_PKT_SIZE,
-				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				msg->flags & MIPI_DSI_MSG_USE_LPM ?
 				MAX_RD_PKT_SIZE : 0);
 		break;
 	case MIPI_DSI_GENERIC_SHORT_WRITE_0_PARAM:
 		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, GEN_SW_0P_TX,
-				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				msg->flags & MIPI_DSI_MSG_USE_LPM ?
 				GEN_SW_0P_TX : 0);
 		break;
 	case MIPI_DSI_GENERIC_SHORT_WRITE_1_PARAM:
 		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, GEN_SW_1P_TX,
-				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				msg->flags & MIPI_DSI_MSG_USE_LPM ?
 				GEN_SW_1P_TX : 0);
 		break;
 	case MIPI_DSI_GENERIC_SHORT_WRITE_2_PARAM:
 		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, GEN_SW_2P_TX,
-				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				msg->flags & MIPI_DSI_MSG_USE_LPM ?
 				GEN_SW_2P_TX : 0);
 		break;
 	case MIPI_DSI_GENERIC_LONG_WRITE:
 		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, GEN_LW_TX,
-				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				msg->flags & MIPI_DSI_MSG_USE_LPM ?
 				GEN_LW_TX : 0);
 		break;
 	case MIPI_DSI_GENERIC_READ_REQUEST_0_PARAM:
 		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, GEN_SR_0P_TX,
-				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				msg->flags & MIPI_DSI_MSG_USE_LPM ?
 				GEN_SR_0P_TX : 0);
 		break;
 	case MIPI_DSI_GENERIC_READ_REQUEST_1_PARAM:
 		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, GEN_SR_1P_TX,
-				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				msg->flags & MIPI_DSI_MSG_USE_LPM ?
 				GEN_SR_1P_TX : 0);
 		break;
 	case MIPI_DSI_GENERIC_READ_REQUEST_2_PARAM:
 		dsi_update_bits(dsi, DSI_CMD_MODE_CFG, GEN_SR_2P_TX,
-				dsi->mode_flags & MIPI_DSI_MODE_LPM ?
+				msg->flags & MIPI_DSI_MSG_USE_LPM ?
 				GEN_SR_2P_TX : 0);
 		break;
 	default:
+		a36_logo_diag_panel(A36_D_XFER_ERRNO, -EINVAL);
 		return -EINVAL;
 	}
 
@@ -807,9 +843,11 @@ static ssize_t dw_mipi_dsi_transfer(struct dw_mipi_dsi *dsi,
 				ACK_RQST_EN, ACK_RQST_EN);
 
 	/* create a packet to the DSI protocol */
+	a36_logo_diag_panel(A36_D_XFER_STAGE, 2);
 	ret = mipi_dsi_create_packet(&packet, msg);
 	if (ret) {
 		printf("failed to create packet: %d\n", ret);
+		a36_logo_diag_panel(A36_D_XFER_ERRNO, ret);
 		return ret;
 	}
 
@@ -824,9 +862,12 @@ static ssize_t dw_mipi_dsi_transfer(struct dw_mipi_dsi *dsi,
 		 * making it possible to use FIFO sizes smaller than
 		 * the amount of data of the longest packet to be written.
 		 */
+		a36_logo_diag_panel(A36_D_XFER_STAGE, 3);
 		ret = genif_wait_w_pld_fifo_not_full(dsi);
-		if (ret)
+		if (ret) {
+			a36_logo_diag_panel(A36_D_XFER_ERRNO, ret);
 			return ret;
+		}
 
 		if (packet.payload_length < 4) {
 			/* send residu payload */
@@ -842,30 +883,42 @@ static ssize_t dw_mipi_dsi_transfer(struct dw_mipi_dsi *dsi,
 		}
 	}
 
+	a36_logo_diag_panel(A36_D_XFER_STAGE, 4);
 	ret = genif_wait_cmd_fifo_not_full(dsi);
-	if (ret)
+	if (ret) {
+		a36_logo_diag_panel(A36_D_XFER_ERRNO, ret);
 		return ret;
+	}
 
 	/* Send packet header */
 	val = get_unaligned_le32(packet.header);
 	dsi_write(dsi, DSI_GEN_HDR, val);
 
+	a36_logo_diag_panel(A36_D_XFER_STAGE, 5);
 	ret = genif_wait_write_fifo_empty(dsi);
-	if (ret)
+	if (ret) {
+		a36_logo_diag_panel(A36_D_XFER_ERRNO, ret);
 		return ret;
+	}
 
 	if (msg->rx_len) {
 		ret = dw_mipi_dsi_read_from_fifo(dsi, msg);
-		if (ret < 0)
+		if (ret < 0) {
+			a36_logo_diag_panel(A36_D_XFER_ERRNO, ret);
 			return ret;
+		}
 	}
 
 	if (dsi->slave) {
 		ret = dw_mipi_dsi_transfer(dsi->slave, msg);
-		if (ret < 0)
+		if (ret < 0) {
+			a36_logo_diag_panel(A36_D_XFER_ERRNO, ret);
 			return ret;
+		}
 	}
 
+	a36_logo_diag_panel(A36_D_XFER_STAGE, 9);
+	a36_logo_diag_panel(A36_D_XFER_ERRNO, 0);
 	return msg->rx_len ? msg->rx_len : msg->tx_len;
 }
 
