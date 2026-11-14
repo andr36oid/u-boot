@@ -407,6 +407,8 @@ void andr36oid_emmc_pins(void)
 
 int init_kernel_dtb(void)
 {
+	void *loader_fdt;
+	size_t loader_size;
 	ulong fdt_addr;
 	int ret;
 
@@ -474,11 +476,28 @@ int init_kernel_dtb(void)
 	 * There is a phandle miss match between U-Boot and kernel dtb node,
 	 * the typical is cru phandle, we fixup it in U-Boot live dt nodes.
 	 */
-	phandles_fixup((void *)fdt_addr);
+	/* of_live_build() retains property names/values in its input blob.
+	 * boot.ini reuses fdt_addr_r for the Linux DTB, so that staging buffer
+	 * cannot back live driver-model nodes past the first file load.
+	 * Keep the selected loader description for the lifetime of U-Boot;
+	 * the kernel handoff FDT remains separate and is fixed up normally.
+	 */
+	loader_size = fdt_totalsize((void *)fdt_addr);
+	loader_fdt = malloc(loader_size);
+	if (!loader_fdt)
+		return -ENOMEM;
+	memcpy(loader_fdt, (void *)fdt_addr, loader_size);
+	phandles_fixup(loader_fdt);
 
-	of_live_build((void *)fdt_addr, (struct device_node **)&gd->of_root);
-	dm_scan_fdt((void *)fdt_addr, false);
-	gd->fdt_blob = (void *)fdt_addr;
+	ret = of_live_build(loader_fdt, (struct device_node **)&gd->of_root);
+	if (ret) {
+		/* Alias scanning can fail after live nodes already reference
+		 * this backing store. Never leave those nodes dangling.
+		 */
+		return ret;
+	}
+	dm_scan_fdt(loader_fdt, false);
+	gd->fdt_blob = loader_fdt;
 
 	/* Reserve 'reserved-memory' */
 	ret = boot_fdt_add_sysmem_rsv_regions((void *)gd->fdt_blob);
